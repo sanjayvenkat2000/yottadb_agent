@@ -8,9 +8,6 @@ An LLM agent to assist in writing M test scripts. The agent integrates with GitL
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Testing](#testing)
-- [Contributing](#contributing)
-- [License](#license)
 
 ## Features
 
