@@ -1,0 +1,585 @@
+You are an M language expert. I need your assistance with M code, and it's crucial that you strictly adhere to specific syntax and formatting rules that I will outline. This will be a multi-step process.
+
+Step 1: Read the documentation and refesh yourself on the M language.
+
+YottaDB M Scripting Quick Reference
+===================================
+
+This document provides a condensed summary of YottaDB features relevant to M scripting,
+extracted from more comprehensive documentation.
+
+Core M Language Features
+------------------------
+
+**1. Data Types:**
+   - Single basic data type: string.
+   - Evaluation contexts:
+     - Numeric (numexpr): Evaluates as a number until a non-numeric char (except initial +/-, first .). YDB: 18 digits accuracy, range 10e-43 to 10e47.
+     - Integer (intexpr): Like numexpr, stops at first decimal point.
+     - Truth-valued (tvexpr): Non-zero numeric is TRUE (1), zero is FALSE (0).
+
+**2. M Names:**
+   - Alphanumeric, must start with an alphabetic character or '%'.
+   - '%' only as the first character (convention for system/utility routines).
+   - Case-sensitive.
+   - Max 31 significant characters for variables, routines, labels.
+
+**3. Variables:**
+   - Local: No prefix, process-specific, transient.
+   - Global: `^` prefix, persistent in database.
+   - Unsubscripted or subscripted (arrays).
+
+**4. Arrays and Subscripts:**
+   - Sparse arrays (nodes exist only if set).
+   - Subscripts can be any expression (numeric, string).
+   - Up to 31 subscripts.
+   - Max total length of `name(sub1,sub2,...)`: 1019 bytes (internal representation).
+   - Max node value: 1MiB.
+
+**5. M Collation Sequence (Default):**
+   - Empty string ("") collates first.
+   - Canonical numeric subscripts next, in numeric order.
+   - String subscripts last, in ASCII/byte order.
+   - Null Subscripts:
+     - `NULL_SUBSCRIPTS` GDE region qualifier (ALWAYS, NEVER, EXISTING).
+     - `STDNULLCOLL` GDE region qualifier (TRUE for standard, FALSE for historical).
+     - Standard: null collates before all others.
+     - Historical: null collates between numeric and string.
+     - Local variables: `ydb_lct_stdnull` env var or `%LCLCOL` utility.
+
+**6. Naked References:**
+   - Abbreviated global reference: `^(sub1,sub2)`.
+   - Uses the last referenced global name, replacing its last subscript level.
+   - Use with caution, typically on the same line after a full reference.
+
+**7. Global Variable Name Environments (Extended References):**
+   - Access globals in alternative databases/global directories.
+   - Syntax: `^|"gld_file_expr"|name(subs...)`
+   - Syntax: `^[expratom1[,expratom2]]name(subs...)` (expratom1 is GLD)
+
+**8. Literals:**
+   - String (strlit): Enclosed in double quotes (`""`). `""""` for a single quote inside. Use `$CHAR()` for non-graphics.
+   - Numeric (numlit): No delimiters (e.g., `123`, `1.23`, `-5`, `1E5`, `1.2E-3`).
+
+**9. Expressions and expratoms:**
+   - expratom: lvn, gvn, ISV, function, extrinsic, literal, `(expression)`, `unary_op expratom`.
+   - expression: expratom, `expratom binary_op expratom`.
+
+**10. Operators:**
+    - Precedence: Unary operators right-to-left. Binary operators strictly left-to-right. Use `()` for hierarchy.
+    - Arithmetic: `+` (unary/binary), `-` (unary/binary), `*`, `/`, `\ ` (integer division), `#` (modulo), `**` (exponentiation).
+    - Logical: `'` (NOT), `&` (AND), `!` (OR). Result is 0 or 1.
+    - String Concatenation: `_`
+    - Relational (result 0 or 1):
+        - Numeric: `>`, `<`. Combined with `'`: `'<` (GT or EQ), `'>` (LT or EQ).
+        - String: `=` (equality), `[` (contains), `]` (follows - ASCII), `]]` (sorts after - M collation). Combined with `'`.
+    - Pattern Match (`?`): `expr?pattern_list`
+        - Pattern atom: `repetition_count pattern_code` OR `repetition_count "string_literal"` OR `repetition_count (alt1,alt2,...)`
+        - Repetition count: `intlit` (exact), `.intlit` (0 to intlit), `intlit.` (intlit to infinity), `intlit1.intlit2` (range), `.` (0 to infinity).
+        - Pattern codes: A (alpha), C (control), E (any), L (lower), N (numeric), P (punctuation), U (upper). Case-insensitive.
+        - User-defined patterns via `%PATCODE` and `ydb_pattern_file`/`ydb_pattern_table`.
+
+**11. Commands:**
+    - Can be abbreviated (e.g., `S` for `SET`).
+    - Optional arguments. Multiple arguments often treated as multiple command invocations.
+    - Two spaces required after an argumentless command if followed by another command on the same line.
+    - Postconditionals: `COMMAND:tvexpr ...` - command executes if tvexpr is true.
+    - Timeouts (for LOCK, JOB, OPEN, READ, ZALLOCATE): `COMMAND arg:numexpr ...` - numexpr in seconds. $TEST set to 1 if successful, 0 if timeout.
+
+**12. Routines:**
+    - Stored in `.m` files. Routine name usually matches filename ( önemlidir for auto-ZLINK).
+    - Lines: `[label[(formallist)]] linestart [level_indicators] command [args] [command [args]...]`
+    - Label: M name or all digits. `label:` for local labels (not accessible externally/via indirection).
+    - Formallist: `(param1,param2,...)` for parameter passing.
+    - Linestart: One or more spaces/tabs.
+    - Level indicators: `.` for argumentless `DO` blocks.
+    - Comments: `;` to end of line.
+
+**13. Entry References (entryref):**
+    - Target for GOTO, DO, ZGOTO, ZBREAK, ZPRINT, $TEXT().
+    - Format: `[label][+offset][^routename]`
+    - If no routename, current routine assumed. If no label, offset is from routine start. If no offset, 0 assumed.
+
+**14. Indirection (`@`):**
+    - Argument indirection: `CMD @var`
+    - Atomic indirection (within expressions): `SET x="Y", z=@x_A`
+    - Entryref indirection: `DO @lab^@rtn`
+    - Pattern code indirection: `IF x?@pattern_var`
+    - Name indirection (for subscripted variables): `SET @@var@(subs)=val`
+
+**15. Parameter Passing (for DO with params, extrinsics):**
+    - Actuallist in caller: `DO label(expr1, .lvn2, expr3)`
+    - Formallist in callee: `label(param1, param2, param3)`
+    - Call-by-value: for expressions. Callee gets a copy.
+    - Call-by-reference: for actualnames (e.g., `.lvn2`). Callee operates on original variable.
+    - Implicit `NEW` on formallist parameters.
+
+**16. External Calls:**
+    - `DO &[pkg.]name[^lbl](params)`
+    - `$&[pkg.]name[^lbl](params)`
+    - Requires external call table (`.xc` file) specified by `ydb_xc_<pkg>` env var.
+
+**17. Extrinsic Functions & Special Variables:**
+    - Function: `$$[label][^routine]([actuallist])`
+    - Special Variable: `$$[label][^routine]` (no actuallist)
+    - Must terminate with `QUIT expression`.
+    - `$TEST` is stacked and restored.
+
+**18. Transaction Processing (TP):**
+    - `TSTART [ (varlist) | * | ] [ : keywordlist ]`: Begins transaction, increments $TLEVEL.
+        - `varlist` or `*`: locals to restore on TRESTART. Empty `()`: no locals restored.
+        - Keywords: `SERIAL` (default), `TRANSACTIONID="BATCH"` (no wait for journal sync).
+    - `TCOMMIT`: Ends transaction/sub-transaction. If outermost ($TLEVEL becomes 0), commits updates.
+    - `TROLLBACK [level_expr]`: Aborts transaction/sub-transaction, discards updates. No arg or 0 rolls back all.
+    - `TRESTART`: Restarts current transaction if TSTART enabled it.
+    - ACID properties. YottaDB uses optimistic concurrency.
+    - Rules: Keep transactions short. Avoid I/O, LOCKs, JOB, ZSYSTEM inside TP. Error handlers in TP need TROLLBACK.
+    - ISVs: `$TLEVEL`, `$TRESTART`.
+
+M Commands Quick List
+---------------------
+(Syntax: `CMD[ABBREV][:postcond] [args...]`)
+
+-   `B[REAK][:tvexpr] [action_expr[:tvexpr]]`: Pause, enter Direct Mode. Action_expr XECUTEd before break.
+-   `C[LOSE][:tvexpr] device_expr[:(params)][,...]`: Close device.
+-   `D[O][:tvexpr] [entryref[(actuallist)][:tvexpr]][,...]`: Call subroutine. Argumentless DO for local blocks.
+-   `E[LSE]`: Execute rest of line if $TEST=0. Requires two spaces after if followed by commands.
+-   `F[OR][:tvexpr] [lvn=start[:increment[:limit]]][,...]`: Loop. Argumentless FOR for infinite loop (needs QUIT).
+-   `G[OTO][:tvexpr] entryref[:tvexpr][,...]`: Transfer control.
+-   `H[ALT][:tvexpr]`: Stop program, return to OS. `$?` is 0.
+-   `H[ANG][:tvexpr] numexpr[,...]`: Suspend for numexpr seconds.
+-   `I[F] [tvexpr[,...]]`: Conditional execution. If no arg, uses current $TEST.
+-   `J[OB][:tvexpr] entryref[(actuallist)][:(procparams)][:timeout][,...]`: Start background YDB process.
+-   `K[ILL][:tvexpr] [glvn | (lvn_excl_list) | *lvn | *lname ]`: Delete variables.
+    - `KILL`: Kills all local variables.
+    - `KILL var`: Kills `var` and its descendants.
+    - `KILL (lvn1,lvn2)`: Exclusive kill - kills all locals *except* lvn1, lvn2.
+    - `KILL *lvn`: Removes alias association for `lvn`.
+-   `L[OCK][:tvexpr] [[+|-]resourcename | (resourcelist)][:timeout][,...]`: Manage resource locks.
+    - `LOCK res`: Release all prior, lock `res`.
+    - `LOCK +res`: Incrementally lock `res`.
+    - `LOCK -res`: Decrementally unlock `res`.
+    - `LOCK (res1,res2)`: Lock `res1` and `res2` atomically.
+    - `LOCK`: Release all locks held by process.
+-   `M[ERGE][:tvexpr] destination_glvn=source_glvn[,...]`: Copy source tree to destination.
+-   `N[EW][:tvexpr] [lvn | (lvn_excl_list)][,...]`: Save and undefine local variables for current scope.
+    - `NEW`: News all current local variables.
+    - `NEW var`: News `var` and its descendants.
+    - `NEW (var1,var2)`: Exclusive new - news all locals *except* var1, var2.
+-   `O[PEN][:tvexpr] device_expr[:(params)][:timeout][:mnemonicspace][,...]`: Open/connect device.
+-   `Q[UIT][:tvexpr] [return_expr | *lvn | *lname]`: Exit current execution level (FOR loop, DO block, routine, extrinsic).
+    - `QUIT`: For DO/FOR.
+    - `QUIT return_expr`: For extrinsics.
+    - `QUIT *lvn`: For extrinsics returning alias container.
+-   `R[EAD][:tvexpr] [prompt_strlit|fcc|var_target[:timeout]|*var_target[:timeout]|var_target#len_expr[:timeout]][,...]`: Read from current device.
+-   `S[ET][:tvexpr] [ (setleft_list)=expr | setleft=expr | *lvn=source_alias | *lvn=alias_container ][,...]`: Assign value.
+    - `setleft`: `glvn`, `$EXTRACT(...)`, `$PIECE(...)`, some ISVs.
+-   `TC[OMMIT][:tvexpr]`: Commit current transaction level.
+-   `TRE[START][:tvexpr]`: Restart transaction (if TSTART allowed).
+-   `TRO[LLBACK][:tvexpr] [level_expr]`: Rollback transaction.
+-   `TS[TART][:tvexpr] [ (lvn_list_for_restart) | * | ][ : keyword_list ]`: Start transaction.
+-   `U[SE][:tvexpr] device_expr[:(params)][,...]`: Set current I/O device.
+-   `V[IEW][:tvexpr] keyword[:keyword_args][,...]`: View/change environment settings.
+-   `W[RITE][:tvexpr] [expr|*code_expr|fcc][,...]`: Write to current device.
+    - `fcc`: `!` (newline), `#` (formfeed), `?col` (tab to column).
+-   `X[ECUTE][:tvexpr] m_code_expr[:tvexpr][,...]`: Execute M code string.
+-   `ZA[LLOCATE][:tvexpr] [(resourcelist)][:timeout][,...]`: (Deprecated) Incremental lock.
+-   `ZB[REAK][:tvexpr] [-entryref | -* | entryref[:action_expr[:count_expr]]][,...]`: Set/clear debug breakpoints.
+-   `ZC[OMPILE][:tvexpr] filespec_expr[,...]`: Compile M routine(s).
+-   `ZC[ONTINUE][:tvexpr]`: Continue from BREAK.
+-   `ZD[EALLOCATE][:tvexpr] [resourcename | (resourcelist)][,...]`: (Deprecated) Release ZALLOCATEd locks.
+-   `ZED[IT][:tvexpr] [filespec_expr][,...]`: Invoke editor.
+-   `ZG[OTO][:tvexpr] [level_expr][:entryref[:tvexpr]][,...]`: Unwind stack and GOTO.
+-   `ZHA[LT][:tvexpr] [status_code_expr]`: Halt program, return status code.
+-   `ZHE[LP][:tvexpr] [topic_expr[:helpfile_gld_expr]][,...]`: Access help.
+-   `ZK[ILL][:tvexpr] glvn[,...]`: Kill only node value, leave descendants.
+-   `ZL[INK][:tvexpr] [filespec_expr[:compiler_options_expr]][,...]`: Link routine into image.
+-   `ZM[ESSAGE][:tvexpr] errcode_expr[:param_expr... ]`: Signal an error.
+-   `ZP[RINT][:tvexpr] [entryref_start[:entryref_end]][,...]`: Print routine lines.
+-   `ZRUP[DATE][:tvexpr] filespec_expr[,...]`: Notify processes of updated object files for auto-relink.
+-   `ZSH[OW][:tvexpr] [codes_expr[:destination_gvn]][,...]`: Display/store environment state.
+-   `ZST[EP][:tvexpr] [INTO|OUTOF|OVER][:action_expr]][,...]`: Single-step execution.
+-   `ZSY[STEM][:tvexpr] [shell_command_expr][,...]`: Execute OS command.
+-   `ZTC[OMMIT][:tvexpr] [level_expr]`: (Deprecated) End journaled transaction.
+-   `ZTR[IGGER][:tvexpr] gvn`: Invoke ZTR type triggers for gvn.
+-   `ZTS[TART][:tvexpr]`: (Deprecated) Start journaled transaction.
+-   `ZWI[THDRAW][:tvexpr] glvn[,...]`: Same as ZKILL.
+
+M Intrinsic Functions Quick List
+--------------------------------
+(Syntax: `$FUNCTION(arg1[,arg2...])`)
+
+-   `$A[SCII](expr[,pos])`: ASCII/Unicode value of character at `pos`.
+-   `$C[HAR](code1[,code2...])`: String from list of ASCII/Unicode codes.
+-   `$D[ATA](glvn)`: Node status (0=undef, 1=val, 10=desc, 11=val&desc).
+-   `$E[XTRACT](expr[,start[,end]])`: Substring by character position.
+-   `$F[IND](expr,target[,start])`: Position *after* `target` in `expr`.
+-   `$FN[UMBER](numexpr,formatcodes[,decimaldigits])`: Formatted number string.
+-   `$G[ET](glvn[,default_expr])`: Value of `glvn` or `default_expr`.
+-   `$I[NCREMENT](glvn[,numexpr])`: Atomically increment `glvn` by `numexpr` (default 1).
+-   `$J[USTIFY](expr,width[,decimaldigits])`: Right-justify `expr` in `width`.
+-   `$L[ENGTH](expr1[,delimiter_expr2])`: Length in characters, or pieces if `delimiter_expr2`.
+-   `$NA[ME](glvn[,level_intexpr])`: Canonical string representation of `glvn`.
+-   `$O[RDER](glvn[,direction_intexpr])`: Next/previous subscript (direction 1 or -1).
+-   `$P[IECE](expr1,delimiter_expr2[,from_intexpr1[,to_intexpr2]])`: Piece(s) of `expr1` using `delimiter_expr2`.
+-   `$QL[ENGTH](namevalue_expr)`: Number of subscripts in `namevalue_expr`.
+-   `$QS[UBSCRIPT](namevalue_expr, index_intexpr)`: Subscript at `index_intexpr` from `namevalue_expr`.
+-   `$Q[UERY](glvn[,direction_intexpr])`: Full name of next/previous node with data.
+-   `$R[ANDOM](limit_intexpr)`: Integer from 0 to `limit_intexpr - 1`.
+-   `$RE[VERSE](expr)`: Reversed string.
+-   `$S[ELECT](tvexpr1:expr1[,tvexpr2:expr2...])`: `exprN` for first true `tvexprN`.
+-   `$ST[ACK](level_intexpr[,"MCODE"|"PLACE"|"ECODE"])`: Info about M stack. `level_intexpr=-1` for highest level.
+-   `$T[EXT](entryref)`: Source code line at `entryref`. `+0` for routine name.
+-   `$TR[ANSLATE](expr1,from_chars_expr2[,to_chars_expr3])`: Character translation/removal.
+-   `$V[IEW](keyword_expr1[,arg_expr2])`: Information about environment settings.
+-   `$ZA[SCII](expr[,byte_pos])`: Value of byte at `byte_pos`.
+-   `$ZCH[AR](byteval1[,byteval2...])`: String from list of byte values.
+-   `$ZCO[LLATE](glvn,transform_id_intexpr[,direction_flag])`: Normalized key for collation.
+-   `$ZCO[NVERT](expr1, code_expr2[, code_expr3])`: Case/charset/base conversion.
+-   `$ZDA[TA](glvn)`: Like $DATA, but distinguishes alias variables (100, 101, 111).
+-   `$ZD[ATE](horolog_expr,format_expr[,monthlist_expr[,daylist_expr]])`: Formatted date/time.
+-   `$ZE[XTRACT](expr[,start_byte_pos[,end_byte_pos]])`: Substring by byte position.
+-   `$ZF[IND](expr,target_expr[,start_byte_pos])`: Position *after* byte sequence `target_expr`.
+-   `$ZG[ETJPI](pid_expr, keyword_expr)`: Process information.
+-   `$ZJ[OBEXAM]([file_template_expr[,zshow_codes_expr]])`: Dumps ZSHOW output to file.
+-   `$ZJ[USTIFY](expr,width_bytes[,decimaldigits])`: Byte-based justify.
+-   `$ZL[ENGTH](expr1[,byte_delimiter_expr2])`: Length in bytes, or pieces if byte_delimiter.
+-   `$ZM[ESSAGE](errcode_intexpr)`: Error message text for `errcode_intexpr`.
+-   `$ZP[ARSE](filespec[,field_keyword[,default_spec1[,default_spec2[,mode_keyword]]]])`: Parse filename.
+-   `$ZP[EEK]("mnemonic[:arg]",offset,length[,format])`: Examine memory content.
+-   `$ZPI[ECE](expr1,byte_delimiter_expr2[,from_intexpr1[,to_intexpr2]])`: Piece by byte delimiter.
+-   `$ZPR[EVIOUS](glvn)`: (Deprecated) Previous subscript. Use `$ORDER(glvn,-1)`.
+-   `$ZQGBLMOD[GBLMOD](gvn)`: Check if global changed since replication sync point.
+-   `$ZS[EARCH](filespec_expr[,stream_num_intexpr])`: Find file(s).
+-   `$ZSIGPROC(pid_expr, signal_expr)`: Send signal to process.
+-   `$ZSO[CKET](device_expr,keyword_expr[,index_expr[,delimiter_index_expr]])`: Socket device info.
+-   `$ZSU[BSTR](expr,start_byte_pos[,num_bytes])`: Valid UTF-8 string from byte sequence.
+-   `$ZSY[SLOG](message_expr)`: Send message to syslog.
+-   `$ZTR[ANSLATE](expr1,from_bytes_expr2[,to_bytes_expr3])`: Byte translation/removal.
+-   `$ZT[RIGGER](action_expr[,arg_expr2])`: Load/examine trigger definitions ("FILE" or "ITEM", "SELECT").
+-   `$ZTRN[LNM](env_var_name_expr[,... VMS_args ...,item_keyword_expr])`: Get environment variable value.
+-   `$ZW[IDTH](expr)`: Display column width of `expr`.
+-   `$ZWR[ITE](expr[,direction_intexpr])`: Convert to/from ZWRITE format.
+-   `$ZYH[ASH](string_expr[,salt_intexpr])`: MurmurHash3 of string.
+-   `$ZYISS[QLNULL](expr)`: True if `expr` is $ZYSQLNULL.
+-   `$ZYSU[FFIX](string_expr)`: MurmurHash3 as 22-char alphanumeric string.
+
+M Intrinsic Special Variables Quick List
+----------------------------------------
+(R=Read-Only, RW=Read-Write, NEW=NEWable)
+
+-   `$D[EVICE]` (R): Status of current I/O device (e.g., "0" or "1,error text").
+-   `$EC[ODE]` (RW): Comma-delimited list of active error codes.
+-   `$ES[TACK]` (R, NEW): Stack level relative to last `NEW $ESTACK`.
+-   `$ET[RAP]` (RW, NEW): M code string for error trapping.
+-   `$H[OROLOG]` (R): Current date and time (`days,seconds`).
+-   `$I[O]` (R): Name of current I/O device.
+-   `$J[OB]` (R): Current process ID (PID).
+-   `$K[EY]` (R): Terminating character(s) of last READ. Socket state.
+-   `$P[RINCIPAL]` (R): Name of the initial (login) I/O device.
+-   `$Q[UIT]` (R): True (1) if current M frame was invoked as an extrinsic.
+-   `$R[EFERENCE]` (R): Name of last global variable referenced.
+-   `$ST[ACK]` (R): Current M stack depth (0 for base).
+-   `$S[TORAGE]` (R): Approximate free memory in process address space.
+-   `$SY[STEM]` (RW): System ID string.
+-   `$T[EST]` (R): Truth value of last IF condition or timed command status.
+-   `$TL[EVEL]` (R): Current TP transaction nesting level.
+-   `$TR[ESTART]` (R): Number of times current TP transaction has restarted.
+-   `$X` (RW): Current horizontal cursor position (column) on current device.
+-   `$Y` (RW): Current vertical cursor position (line/row) on current device.
+-   `$ZA` (R): Device-specific status after last READ.
+-   `$ZAL[LOCSTOR]` (R): Bytes allocated by YDB including overhead.
+-   `$ZAU[DIT]` (R): True (1) if AUDIT principal device logging is on.
+-   `$ZB` (R): Actual terminator string from last terminal READ.
+-   `$ZCH[SET]` (R): Character set mode ("M" or "UTF-8").
+-   `$ZCL[OSE]` (R): Exit status of last closed PIPE co-process.
+-   `$ZCM[DLINE]` (RW): Command line arguments passed to M process.
+-   `$ZCO[MPILE]` (RW): Default ZLINK/ZCOMPILE qualifiers.
+-   `$ZCS[TATUS]` (R): Status of last ZCOMPILE/ZLINK.
+-   `$ZDA[TEFORM]` (RW): Default year format (0,1) for $ZDATE().
+-   `$ZD[IRECTORY]` (RW): Current working directory path.
+-   `$ZED[ITOR]` (R): Exit status of last ZEDIT.
+-   `$ZEO[F]` (R): True (1) if last READ on current device reached end-of-file.
+-   `$ZE[RROR]` (RW): User/application-defined error message string.
+-   `$ZG[BLDIR]` (RW, NEW): Pathname of current global directory file.
+-   `$ZH[OROLOG]` (R): $HOROLOG plus microseconds and UTC offset.
+-   `$ZINI[NTERRUPT]` (R): True (1) if currently executing an interrupt handler.
+-   `$ZINT[ERRUPT]` (RW): M code to execute on MUPIP INTRPT or $ZTEXIT.
+-   `$ZI[O]` (R): Canonical name of current device.
+-   `$ZJ[OB]` (R): PID of process created by last JOB command.
+-   `$ZK[EY]` (R): Socket: list of ready sockets. Seqfile: current position.
+-   `$ZL[EVEL]` (R): Current M stack depth (1 for base). ($STACK+1).
+-   `$ZMA[LLOCLIM]` (RW): Limit for YDB private memory allocation.
+-   `$ZMAXTPTI[ME]` (RW): Timeout in seconds for outermost TP transaction.
+-   `$ZMO[DE]` (R): Execution mode ("INTERACTIVE" or "OTHER").
+-   `$ZON[LNRLBK]` (R): Increments if concurrent online rollback detected.
+-   `$ZPATN[UMERIC]` (R): How 'N' patcode is interpreted ("M" or "UTF-8").
+-   `$ZPI[N]` (R): Input side of a split $PRINCIPAL device.
+-   `$ZPO[SITION]` (R): `label+offset^routine` of current execution point.
+-   `$ZPO[UT]` (R): Output side of a split $PRINCIPAL device.
+-   `$ZPR[OMPT]` (RW): Direct Mode prompt string.
+-   `$ZQ[UIT]` (R): True (1) if QUIT expr acts as SET tmp=expr QUIT:$QUIT tmp QUIT.
+-   `$ZR[EALSTOR]` (R): Total memory allocated by YDB process (may not be in use).
+-   `$ZRE[LDATE]` (R): YDB build date/time and commit SHA.
+-   `$ZRO[UTINES]` (RW): Search path for M routines.
+-   `$ZSO[URCE]` (RW): Default routine name for ZEDIT/ZLINK.
+-   `$ZS[TATUS]` (RW): String with last error info (`code,location,message`).
+-   `$ZST[EP]` (RW): Default action for ZSTEP command.
+-   `$ZSTRP[LLIM]` (RW): Limit for YDB string pool memory.
+-   `$ZSY[STEM]` (R): Exit status of last ZSYSTEM.
+-   `$ZTE[XIT]` (RW): If true, XECUTEs $ZINTERRUPT after TCOMMIT/TROLLBACK.
+-   `$ZTI[MEOUT]` (RW): Process-wide timer `([secs_val][:action_expr])`.
+-   `$ZTR[AP]` (RW, NEW): M code for error trapping (older mechanism).
+-   `$ZU[SEDSTOR]` (R): `$ZALLOCSTOR` minus memory management overhead.
+-   `$ZUT[ILITY]` (R): (Obsolete, historical) Path to utility directory.
+-   `$ZV[ERSION]` (R): GT.M version string (for compatibility).
+-   `$ZYER[ROR]` (RW, NEW): Entryref to set $ZERROR on error.
+-   `$ZYI[NTRSIG]` (R): "SIGUSR1" or "SIGUSR2" if in $ZINTERRUPT from that signal.
+-   `$ZYREL[EASE]` (R): YottaDB release string.
+-   `$ZYSQLN[ULL]` (R): Special value representing SQL NULL.
+-   Trigger ISVs (Read-only in trigger code, except $ZTVALUE, $ZTSLATE, $ZTWORMHOLE):
+    -   `$ZTD[ATA]`: $DATA of node before update.
+    -   `$ZTDE[LIM]`: Delimiter string from trigger definition.
+    -   `$ZTL[EVEL]`: Trigger nesting depth.
+    -   `$ZTN[AME]`: Current trigger name.
+    -   `$ZTO[LDVAL]`: Value of node before update.
+    -   `$ZTRI[GGEROP]`: Triggering operation ("S", "K", "ZK", "ZTR").
+    -   `$ZTSL[ATE]` (RW): String passed between chained/nested triggers in one TP transaction.
+    -   `$ZTU[PDATE]`: Comma-list of changed piece numbers for SET trigger.
+    -   `$ZTV[ALUE]` (RW for SET): Value being SET to the node; can be modified by trigger.
+    -   `$ZTW[ORMHOLE]` (RW): String for application context, journaled & replicated.
+
+Operating and Debugging in Direct Mode
+--------------------------------------
+-   Enter: `yottadb -direct` or `ydb`. Prompt is `YDB>` (or $ZPROMPT).
+-   Execute M commands directly.
+-   `ZPRINT entryref[:label[+offset]]`: Display source lines.
+-   `ZBREAK [-]entryref[:[action_expr][:count_expr]]`: Set/clear breakpoints.
+    - `ZBREAK -*`: Clear all breakpoints.
+-   `ZSTEP [INTO|OUTOF|OVER][:action_expr]`: Step through code.
+    - Default action is `BREAK`. $ZSTEP ISV holds default action.
+-   `ZCONTINUE`: Resume execution after a BREAK.
+-   `ZSHOW "S"`: Show M invocation stack.
+-   `ZSHOW "V"` or `ZWRITE`: Show local variables.
+-   `ZSHOW "L"`: Show locks.
+-   `ZSHOW "B"`: Show breakpoints.
+-   `ZSHOW "D"`: Show open devices.
+-   `ZSHOW "G"`: Show global statistics.
+-   `ZSHOW "I"`: Show ISVs.
+-   `ZSHOW "*"`: Shows VIBDLGR.
+-   `ZGOTO [level_expr][:entryref]`: Unwind stack and go to location. `ZGOTO` alone goes to base level.
+-   `ZLINK routine_name`: Link routine. If routine is on stack, may need `VIEW "LINK":"RECURSIVE"` or ZGOTO out.
+-   `HALT`: Exit YottaDB.
+-   CTRL-C: If CENABLE for $PRINCIPAL, interrupts execution and enters Direct Mode.
+
+Error Handling
+--------------
+-   `$ETRAP` (RW, NEWable): M code string executed on error. Implicit QUIT after execution.
+    - `SET $ECODE=""` in $ETRAP to prevent error propagation or re-triggering at lower levels.
+-   `$ZTRAP` (RW, NEWable): M code string or entryref. Behavior depends on `ydb_ztrap_form`.
+    - Default ("code" or "adaptive" if code): Retries failing line after $ZTRAP execution unless $ZTRAP GOTO's.
+-   `EXCEPTION` deviceparameter: For device-specific errors.
+-   `$ECODE` (RW): Comma-delimited list of error codes (most recent first). `M...` for M standard, `Z...` for YDB, `U...` for user.
+-   `$ZSTATUS` (RW): String with last error: `<code>,<location>,<message>`.
+-   `$STACK(level[,"ECODE"|"PLACE"|"MCODE"])`: Get info about stack frame at `level`.
+-   `ZMESSAGE errcode`: Raise an error.
+
+I/O Processing
+--------------
+-   Commands: OPEN, USE, READ, WRITE, CLOSE.
+-   Devices: Terminal (TRM), Sequential Disk (SD), FIFO, NULL, SOCKET (SOC), PIPE.
+-   Deviceparameters: Keywords with OPEN, USE, CLOSE to control behavior.
+    - Common: `EXCEPTION`, `CHSET` (M, UTF-8, UTF-16LE/BE), `WIDTH`, `LENGTH`, `WRAP`.
+    - Terminal: `(NO)ECHO`, `(NO)ESCAPE`, `TERMINATOR`, `CTRAP`, `CENABLE`, `EDITING`.
+    - Files: `(NO)FIXED`, `RECORDSIZE`, `STREAM`, `VARIABLE`, `REWIND`, `APPEND`, `SEEK`, `TRUNCATE`, `DELETE`.
+    - Sockets: `LISTEN`, `CONNECT`, `DELIMITER`, `ATTACH`, `DETACH`, `ZBFSIZE`, `ZIBFSIZE`, `TLS`.
+    - Pipes: `COMMAND`, `SHELL`, `STDERR`, `INDEPENDENT`.
+-   ISVs: $IO, $X, $Y, $DEVICE, $KEY, $ZA, $ZB, $ZEOF, $ZPIN, $ZPOUT.
+
+Triggers
+--------
+-   Definition: `[+|-]gvn_pattern -COMMANDS=cmdlist -XECUTE=m_code [-NAME=name] [-DELIM=d] [-PIECES=p] ...`
+-   `gvn_pattern`: e.g., `^ACN(id=:,*)` (binds first sub to `id`).
+-   `cmdlist`: SET, KILL, ZKILL, ZTRIGGER.
+-   Trigger ISVs (available in trigger code):
+    - `$ZTDATA`, `$ZTDELIM`, `$ZTLEVEL`, `$ZTNAME`, `$ZTOLDVAL`, `$ZTRIGGEROP`, `$ZTSLATE`, `$ZTUPDATE`.
+    - `$ZTVALUE` (RW for SET): Value to be set, can be modified by trigger.
+    - `$ZTWORMHOLE` (RW): Shared context string.
+-   Error handling in triggers uses $ETRAP (see `ydb_trigger_etrap`).
+
+Environment Variables (subset relevant to M scripting)
+-----------------------------------------------------
+-   `ydb_dist` (or `gtm_dist`): YottaDB installation directory.
+-   `ydb_gbldir` (or `gtmgbldir`): Path to the global directory file (`.gld`).
+-   `ydb_routines` (or `gtmroutines`): Search path for M routines.
+    - Format: `objdir1(srcdir1_1 srcdir1_2) objdir2(srcdir2_1) dir3 ...`
+    - `*` suffix on object directory enables auto-relink.
+-   `ydb_chset` (or `gtm_chset`): "M" or "UTF-8". Affects $ZCHSET.
+-   `ydb_etrap` (or `gtm_etrap`): Initial value for $ETRAP.
+-   `ydb_ztrap_form`: Controls behavior of $ZTRAP.
+-   `ydb_ci`: Path to call-in table for M to C calls.
+-   `ydb_xc_<pkg>`: Path to call-out table for C to M calls for package `<pkg>`.
+-   `ydb_tmp` (or `gtm_tmp`): Directory for temporary files.
+-   `ydb_log` (or `gtm_log`): Directory for YottaDB log files.
+-   `ydb_principal_editing`: Initial settings for terminal editing (EDITING, EMPTERM, INSERT).
+-   `ydb_side_effects`: If "ON", forces full evaluation of boolean & $SELECT args.
+-   `ydb_boolean`: Controls boolean short-circuiting ("NOFULL_BOOLEAN", "FULL_BOOLEAN", "FULL_BOOLWARN").
+-   `ydb_icu_version`: Specifies ICU version if needed for UTF-8.
+-   `ydb_retention`: Used by `ydb_env_set` for journal file cleanup.
+-   `ydb_dir`: Used by `ydb_env_set` for default environment location.
+
+Global Directories (GDE)
+------------------------
+-   Map global variable names (and name ranges) to database regions.
+-   Regions map to segments, segments map to database files (`.dat`).
+-   Define database file characteristics (block size, allocation, journaling, etc.).
+-   `ydb_gbldir` points to the active `.gld` file.
+-   `$ZGBLDIR` ISV holds current GDE path, can be SET.
+
+MUPIP Utility (selected commands)
+---------------------------------
+-   `MUPIP CREATE [-REGION=region]`: Creates database file(s) based on GDE.
+-   `MUPIP LOAD [-FORMAT={GO|BINARY|ZWR}] filespec`: Loads data from extract file.
+-   `MUPIP EXTRACT [-FORMAT={GO|BINARY|ZWR}] [-SELECT=globexpr] filespec`: Extracts data.
+-   `MUPIP INTEG [-REGION=region | -FILE=dbfile]`: Checks database integrity.
+-   `MUPIP RUNDOWN [-REGION=region | -FILE=dbfile]`: Cleans up IPC resources after crash.
+-   `MUPIP SET -JOURNAL=params -REGION=region`: Manages journaling settings.
+-   `MUPIP SET -REPLICATION=params -REGION=region`: Manages replication settings.
+
+This summary is not exhaustive but covers many common M scripting elements.
+Always refer to the official YottaDB documentation for complete details.
+
+
+Step 2: Learning M Syntax and Style for Tests from this Example
+
+I will begin by providing you with a complete M code example. Your first task is to meticulously analyze this code to learn its characteristic syntax and stylistic conventions. Please pay close attention to and remember the following aspects as demonstrated in the example:
+
+<example>
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;								;
+;  Short note about the test.... in this case tests ztranslate
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; This module is derived from FIS GT.M.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ztranslate ;
+		; since we have byte by byte processing below we need to turn BADCHAR off
+		if $VIEW("BADCHAR") do
+		. set bch=1
+		. view "NOBADCHAR"
+		write !,"Testing ZTRANSLATE",!
+		set fullwidthA=$ZCHAR(239,188,161)
+		set hiraganaA="あ" ; # $ZCHAR(227,129,130)
+		set tamilA="அ" ; # $ZCHAR(224,174,133)
+		set teluguE="ఎ" ; # $ZCHAR(224,176,142)
+		;;;
+		set temp1=$ZCHAR(161,239,188)
+		set temp2=$ZCHAR(130,227,129)
+		set temp3=$ZCHAR(174,133,174)
+		set temp4=$ZCHAR(176,142,224)
+		;;;
+		; also use literals for the same examine statements and check as th code path is very different for variables
+		; and literals
+		if ("UTF-8"=$ZCHSET) do
+		. do ^examine($TRANSLATE(fullwidthA,temp1,temp2),hiraganaA,"ERROR 1 from translate")
+		. do ^examine($TRANSLATE("Ａ",temp1,temp2),hiraganaA,"ERROR 1 on literal from translate")
+		. do ^examine($TRANSLATE(tamilA,temp3,temp4),teluguE,"ERROR 2 from translate")
+		. do ^examine($TRANSLATE("அ",temp3,temp4),teluguE,"ERROR 2 on literal from translate")
+		if ("M"=$ZCHSET) do
+		. do ^examine($TRANSLATE(fullwidthA,temp1,temp2),hiraganaA,"ERROR 3 from ztranslate")
+		. do ^examine($TRANSLATE("Ａ",temp1,temp2),hiraganaA,"ERROR 3 on literal from ztranslate")
+		. do ^examine($TRANSLATE(tamilA,temp3,temp4),teluguE,"ERROR 4 from ztranslate")
+		. do ^examine($TRANSLATE("அ",temp3,temp4),teluguE,"ERROR 4 on literal from ztranslate")
+		do ^examine($ZTRANSLATE(fullwidthA,temp1,temp2),hiraganaA,"ERROR 5 from ztranslate")
+		do ^examine($ZTRANSLATE("Ａ",temp1,temp2),hiraganaA,"ERROR 5 on literal from ztranslate")
+		do ^examine($ZTRANSLATE(tamilA,temp3,temp4),teluguE,"ERROR 6 from ztranslate")
+		do ^examine($ZTRANSLATE("அ",temp3,temp4),teluguE,"ERROR 6 on literal from ztranslate")
+indirection ;
+		write !,"Testing ZTRANSLATE for indirection",!
+		set infullwidthA="fullwidthA"
+		set intamilA="tamilA"
+		set intemp1="temp1"
+		set intemp4="temp4"
+		if ("UTF-8"=$ZCHSET) do
+		. do ^examine($TRANSLATE(@infullwidthA,@intemp1,temp2),hiraganaA,"ERROR 1 from indirection")
+		. do ^examine($TRANSLATE(@intamilA,temp3,@intemp4),teluguE,"ERROR 2 from indirection")
+		if ("M"=$ZCHSET) do
+		. do ^examine($TRANSLATE(@infullwidthA,@intemp1,temp2),hiraganaA,"ERROR 3 from indirection")
+		. do ^examine($TRANSLATE(@intamilA,temp3,@intemp4),teluguE,"ERROR 4 from indirection")
+		do ^examine($ZTRANSLATE(@infullwidthA,@intemp1,temp2),hiraganaA,"ERROR 5 from indirection")
+		do ^examine($ZTRANSLATE(@intamilA,temp3,@intemp4),teluguE,"ERROR 6 from indirection")
+sampleset ;
+		write !,"Testing ZTRANSLATE on some sample unicode literals",!
+		; results should be the same for both utf-8 and M since none of the bytes
+		; are repeated in the strings strx,stry,strz.
+		set strx="ĂȑƋっ" ; # hex values: c4 82 c8 91 c6 8b e3 81 a3
+		set stry="ڦAΨמ" ;  # hex values: da a6 41 ce a8 d7 9e
+		set strz="ẙ۩Ÿ" ;  # hex values: e1 ba 99 db a9 c5 b8
+		set strchange=$Reverse(strx)
+		do multiequal^examine($TRANSLATE(strx,strx,strchange),$ZTRANSLATE(strx,strx,strchange),strchange,"ERROR 1 from sampleset")
+		set strappend=strx_stry_strz
+		set strchange=stry_stry_strz
+		do multiequal^examine($ZTRANSLATE(strappend,strx,stry),$TRANSLATE(strappend,strx,stry),strchange,"ERROR 2 from sampleset")
+replace ;
+		write !,"Testing ZTRANSLATE for character by character replacement",!
+		set varx="abcde"
+		set vary="ａｂｃｄｅ"
+		set str1="alphabet"
+		set str2="ａｌｐｈａｂｅｔ"
+		set varq=$ZCHAR(300,200,499)_$ZCHAR(999,999)_$ZCHAR(567,623,789)
+		if ("UTF-8"=$ZCHSET) do
+		. do ^examine($TRANSLATE(str1,varx,vary),"ａlphａｂｅt","ERROR 1 from replace")
+		. do ^examine($TRANSLATE("alphabet","abcde","ａｂｃｄｅ"),"ａlphａｂｅt","ERROR 1 on literal from replace")
+		. do ^examine($TRANSLATE(str2,vary,varx),"aｌｐｈabeｔ","ERROR 2 from replace")
+		. do ^examine($TRANSLATE("ａｌｐｈａｂｅｔ","ａｂｃｄｅ","abcde"),"aｌｐｈabeｔ","ERROR 2 on literal from replace")
+		if ("M"=$ZCHSET) do
+		. do ^examine($TRANSLATE(str1,varx,vary),$ZCHAR(239)_"lphｽt","ERROR 3 from replace")
+		. do ^examine($TRANSLATE("alphabet","abcde","ａｂｃｄｅ"),$ZCHAR(239)_"lphｽt","ERROR 3 on literal from replace")
+		. do ^examine($TRANSLATE(str2,vary,varx),"abcab"_$ZCHAR(140)_"ab"_$ZCHAR(144)_"ab"_$ZCHAR(136)_"abcababab"_$ZCHAR(148),"ERROR 4 from replace")
+		. do ^examine($TRANSLATE("ａｌｐｈａｂｅｔ","ａｂｃｄｅ","abcde"),"abcab"_$ZCHAR(140)_"ab"_$ZCHAR(144)_"ab"_$ZCHAR(136)_"abcababab"_$ZCHAR(148),"ERROR 4 on literal from replace")
+		;; test some invalid multi-byte char strings
+		if ("UTF-8"=$ZCHSET) do
+		. do ^examine($TRANSLATE(str1,varq,vary),str1,"ERROR 5 from replace")
+		. do ^examine($TRANSLATE("alphabet",varq,"ａｂｃｄｅ"),str1,"ERROR 5 on literal from replace")
+		. do ^examine($TRANSLATE(str1,varx,varq),$ZCHAR(200)_"lph"_$ZCHAR(200)_"t","ERROR 6 from replace")
+		. do ^examine($TRANSLATE("alphabet","abcde",varq),$ZCHAR(200)_"lph"_$ZCHAR(200)_"t","ERROR 6 on literal from replace")
+		. do ^examine($TRANSLATE(str2,vary,varq),$ZCHAR(200)_"ｌｐｈ"_$ZCHAR(200)_"ｔ","ERROR 7 from replace")
+		. do ^examine($TRANSLATE("ａｌｐｈａｂｅｔ","ａｂｃｄｅ",varq),$ZCHAR(200)_"ｌｐｈ"_$ZCHAR(200)_"ｔ","ERROR 7 on literal from replace")
+		if ("M"=$ZCHSET) do
+		. do ^examine($TRANSLATE(str1,varx,varq),$ZCHAR(200)_"lph"_$ZCHAR(200)_"t","ERROR 8 from replace")
+		. do ^examine($TRANSLATE("alphabet","abcde",varq),$ZCHAR(200)_"lph"_$ZCHAR(200)_"t","ERROR 8 on literal from replace")
+		. do ^examine($TRANSLATE(str2,vary,varq),$ZCHAR(200)_"ȌȐȈ"_$zchar(200,200,200)_"Ȕ","ERROR 9 from replace")
+		. do ^examine($TRANSLATE("ａｌｐｈａｂｅｔ","ａｂｃｄｅ",varq),$ZCHAR(200)_"ȌȐȈ"_$zchar(200,200,200)_"Ȕ","ERROR 9 on literal from replace")
+		. do ^examine($TRANSLATE(str2,varq,varx),str2,"ERROR 10 from replace")
+		. do ^examine($TRANSLATE("ａｌｐｈａｂｅｔ",varq,"abcde"),str2,"ERROR 10 on literal from replace")
+		if $data(bch) view "BADCHAR"
+		quit
+
+</example>
+
+Comments: How single-line (;) and block-style (e.g., ;;;;...) comments are used.
+Routine and Label Naming: Conventions for naming routines and labels.
+Commands: Usage and typical casing of M commands (e.g., do, set, new, quit, xecute).
+Intrinsic Functions: Syntax and casing for intrinsic functions (e.g., $TRANSLATE(), $CHAR(), $ZTRAP).
+Variable Scoping and Declaration: Use of new for local variables.
+Indentation: The style and number of spaces used for indentation.
+Line Structure: How commands and arguments are structured on lines, and if/how line continuation is used.
+String Literals: Representation of string literals (e.g., "").
+Operators: Usage of common operators like string concatenation (_).
+Procedure Calls: The format for do LABEL^ROUTINE(arg1,arg2,...).
+Error Handling: Implementation of error handling (e.g., using $ZTRAP).
+Dynamic Execution: Usage of the xecute command.
+Extrinsic Function Definitions and Calls: How functions returning values are defined (if shown) and called (e.g., $$MYFUNC^ROUTINE(arg)).
+
+Step 2: Critical Custom Parser Rules. Please note that there should be no spaces after commas in function arguments. This cause our custom parser to fail. This is important.
+
+After you have learned from the example, the following rules MUST be strictly enforced for ALL M code you generate or modify for me, potentially overriding or supplementing what you observed if there's a conflict. These are critical for our custom parser:
+
+No Spaces After Commas in Function/Procedure Arguments: This is the most important rule. Within the argument list of any function call (e.g., $TRANSLATE(source,from,to,direction)) or any do command calling a subroutine (e.g., do MYSUB^ROUTINE(param1,param2,param3)), there must be absolutely NO space character immediately following a comma.
+Correct Example: $FUNCTION(ARG1,ARG2,ARG3)
+Incorrect Example: $FUNCTION(ARG1, ARG2, ARG3)
+Note: This rule specifically applies to arguments within parentheses. Commas separating variable declarations in a new statement (e.g., new varA, varB, varC) or multiple assignments in a set command should follow the style observed in the initial example code I provide.
+Standard Whitespace and Character Usage: All generated code must use standard space characters for indentation and general spacing. If I provide you with code to correct, ensure any non-standard whitespace characters (like non-breaking spaces, Unicode U+00A0) are identified and replaced with standard spaces.
+
+When handling error pefer ETRAP instead ZTRAP to prevent recursive error in the system for tests. This is a known issue with M and error handling. For tests we should prefer ETRAP.
+
+
