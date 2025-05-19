@@ -47,8 +47,15 @@ An LLM agent to assist in writing M test scripts. The agent integrates with GitL
     ```bash
     poetry shell
     ```
+    
+2. **Set the required environment variables:**
+    ```bash
+    # Set your API keys (replace the values with your actual keys)
+    export GOOGLE_API_KEY=your_google_api_key
+    export GITLAB_ACCESS_TOKEN=your_gitlab_access_token
+    ```
 
-2. **Run the test suggestion agent:**
+3. **Run the test suggestion agent: (review the code and update as required)**
     ```bash
     python yottaagent/test_suggestion_agent.py
     ```
